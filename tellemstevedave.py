@@ -1,5 +1,6 @@
-import requests
 import os.path
+import re
+import requests
 
 API_URL = "http://api.soundcloud.com"
 TRACKS_URL = API_URL + "/users/%(USER_ID)s/tracks" \
@@ -32,19 +33,23 @@ while True:
 
     for (id, title) in tracks:
 
+        title = str(re.sub('[^A-Za-z0-9]+', '_', title)).strip('_')
+        
         url = DOWNLOAD_URL % {"TRACK_ID": id, "CLIENT_ID": CLIENT_ID}
 
         filename = "%s.mp3" % title
-        print "downloading: %s" % filename
+        print "downloading: %s from %s" % (filename, url)
 
         if os.path.exists(filename):
             continue;
 
         request = requests.get(url, stream=True)
 
-        with open(filename, 'wb') as fd:
+        with open(filename + ".tmp", 'wb') as fd:
             chunks = request.iter_content(chunk_size=CHUNK_SIZE)
             for chunk in chunks:
                 fd.write(chunk)
+                
+        os.rename(filename + ".tmp", filename)
 
     offset = offset + LIMIT
