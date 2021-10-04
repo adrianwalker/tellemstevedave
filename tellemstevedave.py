@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import os.path
 import re
@@ -7,19 +7,20 @@ import time
 import requests
 
 
-API_URL = "http://api.soundcloud.com"
+API_URL = "https://api-widget.soundcloud.com"
 TRACKS_URL = API_URL + "/users/%(USER_ID)s/tracks" \
                        "?client_id=%(CLIENT_ID)s" \
                        "&limit=%(LIMIT)s" \
                        "&linked_partitioning=true" \
                        "&format=json"
 LINKED_URL = "%(NEXT_HREF)s&client_id=%(CLIENT_ID)s"
-DOWNLOAD_URL = "https://api.soundcloud.com/tracks/%(TRACK_ID)s/download?client_id=%(CLIENT_ID)s"
+DOWNLOAD_URL = API_URL + "/tracks/%(TRACK_ID)s/download?client_id=%(CLIENT_ID)s"
 DOWNLOAD_PATH = "/media/usb/elements/Music/tesd/"
 CHUNK_SIZE = 16 * 1024
 TESD_USER_ID = "79299245"
-CLIENT_ID = "3b6b877942303cb49ff687b6facb0270"
+CLIENT_ID = "LBCcHmRB8XSStWL6wKH2HPACspQlXg2P"
 LIMIT = 10
+BACKOFF_SECONDS =  [2, 4, 8, 16]
 
 url = TRACKS_URL % {
     "USER_ID": TESD_USER_ID,
@@ -27,15 +28,27 @@ url = TRACKS_URL % {
     "LIMIT": LIMIT
 }
 
+def request_retry(url, stream=False):
+    
+    for backoffSeconds in BACKOFF_SECONDS:
+        response = requests.get(url, stream=stream)
+        
+        if response.status_code == 200:
+            break
+        
+        time.sleep(backoffSeconds)
+        
+    if stream:
+        return response
+    
+    return response.json()
+    
+
 while True:
-
-    response = requests.get(url).json()
-
-    if response.get("code") == 401:
-        time.sleep(3)
-        continue
-
+       
+    response = request_retry(url)
     tracks = response["collection"]
+    nextHref = response["next_href"]
 
     if not tracks:
         break
@@ -46,24 +59,27 @@ while True:
 
         title = str(re.sub('[^A-Za-z0-9]+', '_', title)).strip('_')
 
-        url = DOWNLOAD_URL % {"TRACK_ID": id, "CLIENT_ID": CLIENT_ID}
-
         filename = DOWNLOAD_PATH + "%s.mp3" % title
-        print "downloading: %s from %s" % (filename, url)
+        print ("downloading: %s from %s" % (filename, url))
 
         if os.path.exists(filename):
             continue
 
-        request = requests.get(url, stream=True)
+        url = DOWNLOAD_URL % {"TRACK_ID": id, "CLIENT_ID": CLIENT_ID}
+
+        response = request_retry(url)
+        url = response['redirectUri']
+
+        response = request_retry(url, stream=True)
 
         with open(filename + ".tmp", 'wb') as fd:
-            chunks = request.iter_content(chunk_size=CHUNK_SIZE)
+            chunks = response.iter_content(chunk_size=CHUNK_SIZE)
             for chunk in chunks:
                 fd.write(chunk)
 
         os.rename(filename + ".tmp", filename)
 
     url = LINKED_URL % {
-        "NEXT_HREF": response["next_href"],
+        "NEXT_HREF": nextHref,
         "CLIENT_ID": CLIENT_ID
     }
